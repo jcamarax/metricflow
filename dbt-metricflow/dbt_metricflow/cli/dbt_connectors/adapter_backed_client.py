@@ -22,6 +22,7 @@ from metricflow.sql.render.redshift import RedshiftSqlPlanRenderer
 from metricflow.sql.render.snowflake import SnowflakeSqlPlanRenderer
 from metricflow.sql.render.sql_plan_renderer import SqlPlanRenderer
 from metricflow.sql.render.trino import TrinoSqlPlanRenderer
+from metricflow.sql.render.athena import AthenaSqlPlanRenderer
 from metricflow.sql_request.sql_request_attributes import SqlRequestId
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ class SupportedAdapterTypes(enum.Enum):
     BIGQUERY = "bigquery"
     DUCKDB = "duckdb"
     TRINO = "trino"
+    ATHENA = "athena"
 
     @property
     def sql_engine_type(self) -> SqlEngine:
@@ -60,6 +62,8 @@ class SupportedAdapterTypes(enum.Enum):
             return SqlEngine.DUCKDB
         elif self is SupportedAdapterTypes.TRINO:
             return SqlEngine.TRINO
+        elif self is SupportedAdapterTypes.ATHENA:
+            return SqlEngine.ATHENA
         else:
             assert_values_exhausted(self)
 
@@ -80,6 +84,8 @@ class SupportedAdapterTypes(enum.Enum):
             return DuckDbSqlPlanRenderer()
         elif self is SupportedAdapterTypes.TRINO:
             return TrinoSqlPlanRenderer()
+        elif self is SupportedAdapterTypes.ATHENA:
+            return AthenaSqlPlanRenderer()
         else:
             assert_values_exhausted(self)
 
@@ -136,7 +142,7 @@ class AdapterBackedSqlClient:
             sql_bind_parameter_set: The parameter replacement mapping for filling in concrete values for SQL query
             parameters.
         """
-        start = time.perf_counter()
+        start = time.time()
         request_id = SqlRequestId(f"mf_rid__{random_id()}")
         if sql_bind_parameter_set.param_dict:
             raise SqlBindParametersNotSupportedError(
@@ -157,7 +163,7 @@ class AdapterBackedSqlClient:
             column_names=agate_data.column_names,
             rows=rows,
         )
-        stop = time.perf_counter()
+        stop = time.time()
 
         logger.info(
             LazyFormat(
@@ -183,7 +189,7 @@ class AdapterBackedSqlClient:
                 f"Invalid execute statement - we do not support execute commands with bind parameters through dbt "
                 f"adapters! Bind params: {SqlBindParameterSet.param_dict}"
             )
-        start = time.perf_counter()
+        start = time.time()
         request_id = SqlRequestId(f"mf_rid__{random_id()}")
         logger.info(
             LazyFormat("Running execute() statement", statement=stmt, param_dict=sql_bind_parameter_set.param_dict)
@@ -193,7 +199,7 @@ class AdapterBackedSqlClient:
             # Calls to execute often involve some amount of DDL so we commit here
             self._adapter.commit_if_has_connection()
             logger.debug(LazyFormat(lambda: f"execute() returned from dbt Adapter with response  {result[0]}"))
-        stop = time.perf_counter()
+        stop = time.time()
         logger.info(LazyFormat("Finished execute()", runtime=f"{stop - start:.2f}s"))
 
         return None
@@ -212,7 +218,7 @@ class AdapterBackedSqlClient:
             sql_bind_parameter_set: The parameter replacement mapping for filling in
                 concrete values for SQL query parameters.
         """
-        start = time.perf_counter()
+        start = time.time()
         logger.info(LazyFormat("Running dry run", statement=stmt, param_dict=sql_bind_parameter_set.param_dict))
         request_id = SqlRequestId(f"mf_rid__{random_id()}")
         connection_name = f"MetricFlow_dry_run_request_{request_id}"
@@ -248,7 +254,7 @@ class AdapterBackedSqlClient:
                 if has_error:
                     raise DbtDatabaseError(f"Encountered error in Databricks dry run. Full output: {plan_output_str}")
 
-        stop = time.perf_counter()
+        stop = time.time()
         logger.info(LazyFormat("Finished running the dry run", runtime=f"{stop - start:.2f}s"))
         return
 
